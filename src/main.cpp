@@ -2,7 +2,7 @@
 #include <LiquidCrystal_I2C.h>
 
 char incomingByte;
-
+int scoreX = 14;
 byte mySnake[8][8] =
 {
 { B00000,
@@ -71,8 +71,65 @@ byte mySnake[8][8] =
 }
 };
 
+byte limitRight[] = {
+  B00001,
+  B00001,
+  B00001,
+  B00001,
+  B00001,
+  B00001,
+  B00001,
+  B00001
+};
 
-boolean levelz[5][2][16] = {
+byte limitLeft[] = {
+  B10000,
+  B10000,
+  B10000,
+  B10000,
+  B10000,
+  B10000,
+  B10000,
+  B10000
+};
+
+byte limitTop[] = {
+  B11111,
+  B00000,
+  B00000,
+  B00000,
+  B00000,
+  B00000,
+  B00000,
+  B00000
+};
+
+byte limitButtom[] = {
+  B00000,
+  B00000,
+  B00000,
+  B00000,
+  B00000,
+  B00000,
+  B00000,
+  B11111
+};
+
+boolean levelz[5][2][9] = {
+{{false,false,false,false,false,false,false,false,true},
+{false,false,false,false,false,false,false,false,true}},
+
+{{false,false,true,false,false,false,true,false,false},
+{true,false,false,false,true,false,false,false,false}},
+
+{{true,false,false,false,false,false,false,false,true},
+{true,false,false,false,false,false,false,false,true}},
+
+{{true,false,true,false,false,false,false,false,false},
+{false,false,false,false,true,false,false,true,false}}
+};
+
+/*boolean levelz[5][2][16] = {
 {{false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false},
 {false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false}},
 
@@ -84,7 +141,7 @@ boolean levelz[5][2][16] = {
 
 {{true,false,true,false,false,false,false,false,false,true,false,false,false,true,false,false},
 {false,false,false,false,true,false,false,true,false,false,false,true,false,false,false,true}}
-};
+};*/
 
 int lcdColumns = 16;
 int lcdRows = 2;
@@ -97,9 +154,6 @@ boolean skip, gameOver, gameStarted;
 int olddir;
 int selectedLevel,levels;
 
-int adc_key_val[5] ={50, 200, 400, 600, 800 };
-int NUM_KEYS = 5;
-int adc_key_in;
 int key=-1;
 int oldkey=-1;
 
@@ -128,7 +182,7 @@ void drawMatrix()
   //for (i=0;i<8;i++) lcd.createChar(i, nullChar);
   for(int r=0;r<2;r++)
   {
-    for(int c=0;c<16;c++)
+    for(int c=0;c<8;c++)
     {
       special = false;
       for(int i=0;i<8;i++)
@@ -153,6 +207,7 @@ void drawMatrix()
         lcd.setCursor(c,r);
         if (levelz[selectedLevel][r][c]) lcd.write(255);
         else lcd.write(254);
+
       }
     }
   }
@@ -178,8 +233,8 @@ void gameOverFunction()
   lcd.clear();
   freeList();
   lcd.setCursor(3,0);
-  lcd.print("Game Over!");
-  lcd.setCursor(4,1);
+  lcd.print("Game Over");
+  lcd.setCursor(2,1);
   lcd.print("Score: ");
   lcd.print(collected);
   delay(1000);
@@ -205,7 +260,7 @@ void newPoint()
   while (newp)
   {
     pr = random(16);
-    pc = random(80);
+    pc = random(40);
     newp = false;
     if (levelz[selectedLevel][pr / 8][pc / 5]) newp=true;
     while (p->next != NULL && !newp)
@@ -215,7 +270,7 @@ void newPoint()
     }
   }
 
-  if (collected < 13 && gameStarted) growSnake();
+  if (collected < 50 && gameStarted) growSnake();
 }
 
 void moveHead()
@@ -228,10 +283,10 @@ void moveHead()
     case 3: head->column--; break;
     default : break;
   }
-  if (head->column >= 80) head->column = 0;
-  if (head->column < 0) head->column = 79;
-  if (head->row >= 16) head->row = 0;
-  if (head->row < 0) head->row = 15;
+  if (head->column >= 40) gameOver = true;
+  if (head->column < 0) gameOver = true;
+  if (head->row >= 16) gameOver = true;
+  if (head->row < 0) gameOver = true;
 
   if (levelz[selectedLevel][head->row / 8][head->column / 5]) gameOver = true; // wall collision check
 
@@ -251,7 +306,12 @@ void moveHead()
   if (head->row == pr && head->column == pc) // point pickup check
   {
     collected++;
-    if (gameSpeed < 25) gameSpeed+=3;
+    if(collected<10) gameSpeed+=1;
+    if (collected >=10 && collected <20) gameSpeed+=2;
+    if (collected >=20 && collected <30) gameSpeed+=3;
+    if (collected >=30 && collected <40) gameSpeed+=4;
+    if (gameSpeed > 40) gameSpeed+=5;
+
     newPoint();
   }
   }
@@ -272,9 +332,9 @@ void moveAll()
   moveHead();
 }
 
-void createSnake(int n) // n = size of snake
+void createSnake(int n) // n = Tamaño de Snake
 {
-  for (i=0;i<16;i++)
+  for (i=0;i<8;i++)
     for (j=0;j<80;j++)
       x[i][j] = false;
 
@@ -314,17 +374,15 @@ void startF()
   selectedLevel = 1;
 
   lcd.clear();
-  lcd.setCursor(0,0);
-  lcd.print("Select level: 1");
-  for(i=0;i<8;i++)
-  {
-    lcd.createChar(i,mySnake[i]);
-    lcd.setCursor(i+4,1);
-    lcd.write(byte(i));
-  }
+  lcd.setCursor(0, 0);
+  lcd.print("The Snake V1.0");
+
+  lcd.setCursor(0,1);
+  lcd.print("Level: 1");
+
   collected = 0;
   gameSpeed = 8;
-  createSnake(3);
+  createSnake(7);  //Esta función crea el tamaño inicial de Snake
   time_p = 0;
 }
 
@@ -368,6 +426,12 @@ void setup()
   lcd.backlight();
   Serial.begin(9600);
   startF();
+  lcd.createChar(7, limitRight);
+  lcd.createChar(8, limitLeft);
+  lcd.createChar(9, limitTop);
+  lcd.createChar(10, limitButtom);
+
+
 
 }
 
@@ -404,7 +468,7 @@ void loop()
          }
          else
          {
-           lcd.setCursor(14,0);
+           lcd.setCursor(7,1);
            lcd.print(selectedLevel);
          }
        }
@@ -413,6 +477,17 @@ void loop()
   }
   if (!gameOver && gameStarted)
   {
+
+    lcd.setCursor(10, 0);
+    lcd.print("Score");
+
+    lcd.setCursor(scoreX, 1);
+    lcd.print(collected);
+
+    if(collected>=9){
+      scoreX = 13;
+    }
+
    skip = false; //skip the second moveAll() function call if the first was made
    key = get_key(incomingByte);  // convert into key press
    if (key != oldkey)   // if keypress is detected
@@ -470,7 +545,10 @@ void loop()
      }
    }
 
-  }
+ }
+
+
+
 }
 
 
