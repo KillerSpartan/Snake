@@ -1,8 +1,20 @@
 #include <Arduino.h>
 #include <LiquidCrystal_I2C.h>
+#include <EEPROM.h>
+
+#define EEPROM_SIZE 1
+#define BUTTON_PIN_BITMASK 0x200000000
+
+RTC_DATA_ATTR int bootCount = 0;
+
+
 
 char incomingByte;
 int scoreX = 14;
+int aux=0;
+int sel;
+char P1Name[10];
+char P2Name[10];
 byte mySnake[8][8] =
 {
 { B00000,
@@ -71,89 +83,65 @@ byte mySnake[8][8] =
 }
 };
 
-byte limitRight[] = {
-  B00001,
-  B00001,
-  B00001,
-  B00001,
-  B00001,
-  B00001,
-  B00001,
-  B00001
-};
 
-byte limitLeft[] = {
-  B10000,
-  B10000,
-  B10000,
-  B10000,
-  B10000,
-  B10000,
-  B10000,
-  B10000
-};
+//Pausa el juego función
+void print_wakeup_reason(){
+  esp_sleep_wakeup_cause_t wakeup_reason;
 
-byte limitTop[] = {
-  B11111,
-  B00000,
-  B00000,
-  B00000,
-  B00000,
-  B00000,
-  B00000,
-  B00000
-};
+  wakeup_reason = esp_sleep_get_wakeup_cause();
 
-byte limitButtom[] = {
-  B00000,
-  B00000,
-  B00000,
-  B00000,
-  B00000,
-  B00000,
-  B00000,
-  B11111
-};
+  switch(wakeup_reason)
+  {
+    case ESP_SLEEP_WAKEUP_EXT0 : Serial.println("Wakeup caused by external signal using RTC_IO"); break;
+    case ESP_SLEEP_WAKEUP_EXT1 : Serial.println("Wakeup caused by external signal using RTC_CNTL"); break;
+    case ESP_SLEEP_WAKEUP_TIMER : Serial.println("Wakeup caused by timer"); break;
+    case ESP_SLEEP_WAKEUP_TOUCHPAD : Serial.println("Wakeup caused by touchpad"); break;
+    case ESP_SLEEP_WAKEUP_ULP : Serial.println("Wakeup caused by ULP program"); break;
+    default : Serial.printf("Wakeup was not caused by deep sleep: %d\n",wakeup_reason); break;
+  }
+}
 
-boolean levelz[5][2][9] = {
-{{false,false,false,false,false,false,false,false,true},
-{false,false,false,false,false,false,false,false,true}},
+//~ boolean levelz[5][2][9] = {
+//~ {{false,false,false,false,false,false,false,false,true},
+//~ {false,false,false,false,false,false,false,false,true}},
 
-{{false,false,true,false,false,false,true,false,false},
-{true,false,false,false,true,false,false,false,false}},
+//~ {{false,false,true,false,false,false,true,false,false},
+//~ {true,false,false,false,true,false,false,false,false}},
 
-{{true,false,false,false,false,false,false,false,true},
-{true,false,false,false,false,false,false,false,true}},
+//~ {{true,false,false,false,false,false,false,false,true},
+//~ {true,false,false,false,false,false,false,false,true}},
 
-{{true,false,true,false,false,false,false,false,false},
-{false,false,false,false,true,false,false,true,false}}
-};
-
-/*boolean levelz[5][2][16] = {
-{{false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false},
-{false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false}},
-
-{{true,false,false,false,false,false,false,false,false,false,false,false,false,false,false,true},
-{true,false,false,false,false,false,false,false,false,false,false,false,false,false,false,true}},
-
-{{true,false,false,false,true,false,false,false,false,false,false,true,false,false,false,true},
-{true,false,false,false,false,false,false,false,true,false,false,false,false,false,false,true}},
-
-{{true,false,true,false,false,false,false,false,false,true,false,false,false,true,false,false},
-{false,false,false,false,true,false,false,true,false,false,false,true,false,false,false,true}}
-};*/
+//~ {{true,false,true,false,false,false,false,false,false},
+//~ {false,false,false,false,true,false,false,true,false}}
+//~ };
 
 int lcdColumns = 16;
 int lcdRows = 2;
 LiquidCrystal_I2C lcd(0x3F, lcdColumns, lcdRows);
 
-unsigned long timeNow;
-unsigned long time_p;
+boolean levelz[5][2][16] = {
+{{false,false,false,false,false,false,false,false,false,false,false,false,false,true,false,false},
+{false,false,false,false,false,false,false,false,false,false,false,false,false,true,false,false}},
+
+{{true,false,false,false,false,false,false,false,false,false,false,false,false,true,false,false},
+{true,false,false,false,false,false,false,false,false,false,false,false,false,true,false,false}},
+
+{{true,false,false,false,true,false,false,false,false,false,false,true,false,true,false,false},
+{true,false,false,false,false,false,false,false,true,false,false,false,false,true,false,false}},
+
+{{true,false,true,false,false,false,false,false,false,true,false,false,false,true,false,false},
+{false,false,false,false,true,false,false,true,false,false,false,true,false,false,false,true}}
+};
+
+unsigned long time_p, timeNow;
 int gameSpeed;
 boolean skip, gameOver, gameStarted;
 int olddir;
 int selectedLevel,levels;
 
+int adc_key_val[5] ={50, 200, 400, 600, 800 };
+int NUM_KEYS = 5;
+int adc_key_in;
 int key=-1;
 int oldkey=-1;
 
@@ -182,7 +170,7 @@ void drawMatrix()
   //for (i=0;i<8;i++) lcd.createChar(i, nullChar);
   for(int r=0;r<2;r++)
   {
-    for(int c=0;c<8;c++)
+    for(int c=0;c<16;c++)
     {
       special = false;
       for(int i=0;i<8;i++)
@@ -207,7 +195,6 @@ void drawMatrix()
         lcd.setCursor(c,r);
         if (levelz[selectedLevel][r][c]) lcd.write(255);
         else lcd.write(254);
-
       }
     }
   }
@@ -232,9 +219,9 @@ void gameOverFunction()
   delay(1000);
   lcd.clear();
   freeList();
-  lcd.setCursor(3,0);
+  lcd.setCursor(4,0);
   lcd.print("Game Over");
-  lcd.setCursor(2,1);
+  lcd.setCursor(4,1);
   lcd.print("Score: ");
   lcd.print(collected);
   delay(1000);
@@ -260,7 +247,7 @@ void newPoint()
   while (newp)
   {
     pr = random(16);
-    pc = random(40);
+    pc = random(70);
     newp = false;
     if (levelz[selectedLevel][pr / 8][pc / 5]) newp=true;
     while (p->next != NULL && !newp)
@@ -270,7 +257,7 @@ void newPoint()
     }
   }
 
-  if (collected < 50 && gameStarted) growSnake();
+  if (collected < 13 && gameStarted) growSnake();
 }
 
 void moveHead()
@@ -283,10 +270,10 @@ void moveHead()
     case 3: head->column--; break;
     default : break;
   }
-  if (head->column >= 40) gameOver = true;
-  if (head->column < 0) gameOver = true;
-  if (head->row >= 16) gameOver = true;
-  if (head->row < 0) gameOver = true;
+  if (head->column >= 70) head->column = 0;
+  if (head->column < 0) head->column = 68;
+  if (head->row >= 16) head->row = 0;
+  if (head->row < 0) head->row = 15;
 
   if (levelz[selectedLevel][head->row / 8][head->column / 5]) gameOver = true; // wall collision check
 
@@ -306,12 +293,7 @@ void moveHead()
   if (head->row == pr && head->column == pc) // point pickup check
   {
     collected++;
-    if(collected<10) gameSpeed+=1;
-    if (collected >=10 && collected <20) gameSpeed+=2;
-    if (collected >=20 && collected <30) gameSpeed+=3;
-    if (collected >=30 && collected <40) gameSpeed+=4;
-    if (gameSpeed > 40) gameSpeed+=5;
-
+    if (gameSpeed < 25) gameSpeed+=6;
     newPoint();
   }
   }
@@ -332,9 +314,9 @@ void moveAll()
   moveHead();
 }
 
-void createSnake(int n) // n = Tamaño de Snake
+void createSnake(int n) // n = size of snake
 {
-  for (i=0;i<8;i++)
+  for (i=0;i<16;i++)
     for (j=0;j<80;j++)
       x[i][j] = false;
 
@@ -367,6 +349,16 @@ void createSnake(int n) // n = Tamaño de Snake
   }
 }
 
+
+void bestScores(int gameScore){
+  //Number One
+  if(gameScore > EEPROM.read(0)){
+    EEPROM.write(0, gameScore);
+    EEPROM.commit();
+  }
+}
+
+
 void startF()
 {
   gameOver = false;
@@ -375,7 +367,7 @@ void startF()
 
   lcd.clear();
   lcd.setCursor(0, 0);
-  lcd.print("The Snake V1.0");
+  lcd.print("The Snake V3.0");
 
   lcd.setCursor(0,1);
   lcd.print("Level: 1");
@@ -384,8 +376,23 @@ void startF()
   gameSpeed = 8;
   createSnake(7);  //Esta función crea el tamaño inicial de Snake
   time_p = 0;
+  sel = 1;
 }
 
+int playerNames(char asci, int n){
+
+
+  switch(n){
+    case 1:
+      lcd.setCursor(aux,1);
+      lcd.write(asci);
+      P1Name[aux] = asci;
+      aux++;
+      if(asci==13){aux=0; Serial.print(P1Name); sel=2;}
+    break;
+  }
+      return 0;
+}
 
 int get_key(char input)
 {
@@ -424,13 +431,9 @@ void setup()
   levels = 5; //number of lvls
   lcd.init();
   lcd.backlight();
-  Serial.begin(9600);
+  Serial.begin(115200);
+  EEPROM.begin(EEPROM_SIZE);
   startF();
-  lcd.createChar(7, limitRight);
-  lcd.createChar(8, limitLeft);
-  lcd.createChar(9, limitTop);
-  lcd.createChar(10, limitButtom);
-
 
 
 }
@@ -438,14 +441,15 @@ void setup()
 void loop()
 {
 
-  if(Serial.available() > 0) {
-      incomingByte = Serial.read();
-      Serial.print("I received: "); Serial.println(incomingByte);
-       delay(10);
-    }
+
 
   if (!gameOver && !gameStarted)
   {
+    if(Serial.available() > 0) {
+        incomingByte = Serial.read();
+        Serial.print("I received: "); Serial.println(incomingByte);
+         delay(10);
+      }
    key = get_key(incomingByte);  // convert into key press
    if (key != oldkey)   // if keypress is detected
    {
@@ -475,61 +479,93 @@ void loop()
      }
    }
   }
+
   if (!gameOver && gameStarted)
   {
+    lcd.setCursor(14, 0);
+    lcd.print("P1");
 
-    lcd.setCursor(10, 0);
-    lcd.print("Score");
+    if(sel==1){
+      lcd.setCursor(0,0);
+      lcd.print("Player");
+      if(Serial.available() > 0) {incomingByte = Serial.read();  playerNames(incomingByte,1); delay(10);}
+      lcd.setCursor(14, 1);
+      lcd.print(EEPROM.read(0));
 
-    lcd.setCursor(scoreX, 1);
-    lcd.print(collected);
-
-    if(collected>=9){
-      scoreX = 13;
     }
 
-   skip = false; //skip the second moveAll() function call if the first was made
-   key = get_key(incomingByte);  // convert into key press
-   if (key != oldkey)   // if keypress is detected
-   {
-     delay(50);  // wait for debounce time
-     key = get_key(incomingByte);    // convert into key press
-     if (key != oldkey)
-     {
-       oldkey = key;
-       if (key >=0)
-       {
-         olddir = head->dir;
-         if (key==0 && head->dir!=3) head->dir = 2;
-         if (key==1 && head->dir!=1) head->dir = 0;
-         if (key==2 && head->dir!=0) head->dir = 1;
-         if (key==3 && head->dir!=2) head->dir = 3;
 
-         if (olddir != head->dir)
+    if(sel==2){
+      lcd.clear();
+      delay(300);
+      sel =3;
+    }
+
+    if(sel == 3){
+
+      if(Serial.available() > 0) {
+          incomingByte = Serial.read();
+          Serial.print("I received: "); Serial.println(incomingByte);
+           delay(10);
+        }
+
+      lcd.setCursor(14, 1);
+      lcd.print(collected);
+
+     skip = false; //skip the second moveAll() function call if the first was made
+     key = get_key(incomingByte);  // convert into key press
+     if (key != oldkey)   // if keypress is detected
+     {
+       delay(50);  // wait for debounce time
+       key = get_key(incomingByte);    // convert into key press
+       if (key != oldkey)
+       {
+         oldkey = key;
+         if (key >=0)
          {
-           skip = true;
-           delay(1000/gameSpeed);
-           moveAll();
-           drawMatrix();
+           olddir = head->dir;
+           if (key==0 && head->dir!=3) head->dir = 2;
+           if (key==1 && head->dir!=1) head->dir = 0;
+           if (key==2 && head->dir!=0) head->dir = 1;
+           if (key==3 && head->dir!=2) head->dir = 3;
+
+           if (olddir != head->dir)
+           {
+             skip = true;
+             delay(1000/gameSpeed);
+             moveAll();
+             drawMatrix();
+           }
          }
        }
      }
-   }
 
-   if (!skip)
+ if (!skip)
+ {
+   timeNow = millis();
+   if ((timeNow - time_p)>(1000/gameSpeed))
    {
-     timeNow = millis();
-     if ((timeNow - time_p)>(1000/gameSpeed))
-     {
-       moveAll();
-       drawMatrix();
-       time_p = millis();
-     }
+     moveAll();
+     drawMatrix();
+     time_p = millis();
    }
-  }
+ }
+}
+
+
+
+
+}
+
   if(gameOver)
   {
+    if(Serial.available() > 0) {
+        incomingByte = Serial.read();
+        Serial.print("I received: "); Serial.println(incomingByte);
+         delay(10);
+      }
 
+  bestScores(collected);
    key = get_key(incomingByte);  // convert into key press
    if (key != oldkey)   // if keypress is detected
    {
