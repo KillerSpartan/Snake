@@ -13,7 +13,7 @@ char incomingByte;
 int scoreX = 14;
 int aux=0;
 int sel;
-char P1Name[10];
+char P1Name[5];
 char P2Name[10];
 byte mySnake[8][8] =
 {
@@ -135,7 +135,7 @@ boolean levelz[5][2][16] = {
 
 unsigned long time_p, timeNow;
 int gameSpeed;
-boolean skip, gameOver, gameStarted;
+boolean skip, gameOver, gameStarted, gamePause;
 int olddir;
 int selectedLevel,levels;
 
@@ -160,6 +160,7 @@ long pc,pr;
 
 void drawMatrix()
 {
+
   int cc=0;
   if (!gameOver)
   {
@@ -224,6 +225,19 @@ void gameOverFunction()
   delay(1000);
 }
 
+void pauseGame(){
+  delay(300);
+  lcd.clear();
+  lcd.setCursor(4,1);
+  lcd.print("Pause");
+  delay(200);
+  lcd.clear();
+  lcd.setCursor(0, 1);
+  lcd.print(EEPROM.read(0));
+  lcd.setCursor(0, 0);
+  lcd.print(EEPROM.readString(1));
+  delay(500);
+}
 void growSnake()
 {
   part *p;
@@ -254,7 +268,7 @@ void newPoint()
     }
   }
 
-  if (collected < 13 && gameStarted) growSnake();
+  if (collected < 99 && gameStarted) growSnake();
 }
 
 void moveHead()
@@ -363,16 +377,17 @@ void startF()
 {
   gameOver = false;
   gameStarted = false;
+  gamePause = false;
   selectedLevel = 1;
 
   lcd.clear();
   lcd.setCursor(0, 0);
-  lcd.print("The Snake V3.0");
+  lcd.print("The Snake SE");
 
   lcd.setCursor(0,1);
   lcd.print("Level: 1");
 
-  collected = 24;
+  collected = 0;
   gameSpeed = 8;
   createSnake(7);  //Esta función crea el tamaño inicial de Snake
   time_p = 0;
@@ -441,7 +456,6 @@ void loop()
 {
 
 
-
   if (!gameOver && !gameStarted)
   {
     if(Serial.available() > 0) {
@@ -479,7 +493,7 @@ void loop()
    }
   }
 
-  if (!gameOver && gameStarted)
+  if (!gameOver && gameStarted && !gamePause)
   {
 
     if(sel==1){
@@ -488,7 +502,7 @@ void loop()
       if(Serial.available() > 0) {incomingByte = Serial.read();  playerNames(incomingByte,1); delay(10);}
       lcd.setCursor(14, 1);
       lcd.print(EEPROM.read(0));
-      lcd.setCursor(10, 0);
+      lcd.setCursor(11, 0);
       lcd.print(EEPROM.readString(1));
 
     }
@@ -501,15 +515,19 @@ void loop()
     }
 
     if(sel == 3){
-      lcd.setCursor(14, 0);
-      lcd.print("P1");
+
+
 
       if(Serial.available() > 0) {
+
           incomingByte = Serial.read();
           Serial.print("I received: "); Serial.println(incomingByte);
-           delay(10);
+          delay(10);
+          if(incomingByte == 'l') gamePause = true;
         }
 
+        lcd.setCursor(14, 0);
+        lcd.print(gameSpeed);
       lcd.setCursor(14, 1);
       lcd.print(collected);
 
@@ -557,6 +575,15 @@ void loop()
 
 
 }
+
+if(!gameOver && gameStarted && gamePause){
+  if(Serial.available() > 0) {
+      incomingByte = Serial.read();
+      Serial.print("I received: "); Serial.println(incomingByte);
+      if(incomingByte == 'l') {gamePause = false; sel=3;}
+       delay(10);
+    }
+  pauseGame();}
 
   if(gameOver)
   {
