@@ -2,7 +2,7 @@
 #include <LiquidCrystal_I2C.h>
 #include <EEPROM.h>
 
-#define EEPROM_SIZE 1
+#define EEPROM_SIZE 10
 #define BUTTON_PIN_BITMASK 0x200000000
 
 RTC_DATA_ATTR int bootCount = 0;
@@ -139,9 +139,6 @@ boolean skip, gameOver, gameStarted;
 int olddir;
 int selectedLevel,levels;
 
-int adc_key_val[5] ={50, 200, 400, 600, 800 };
-int NUM_KEYS = 5;
-int adc_key_in;
 int key=-1;
 int oldkey=-1;
 
@@ -350,11 +347,14 @@ void createSnake(int n) // n = size of snake
 }
 
 
-void bestScores(int gameScore){
+void bestScores(int gameScore, char name[10]){
   //Number One
-  if(gameScore > EEPROM.read(0)){
+ if(gameScore > EEPROM.read(0)){
     EEPROM.write(0, gameScore);
     EEPROM.commit();
+    EEPROM.writeString(1, name);
+    EEPROM.commit();
+
   }
 }
 
@@ -372,7 +372,7 @@ void startF()
   lcd.setCursor(0,1);
   lcd.print("Level: 1");
 
-  collected = 0;
+  collected = 24;
   gameSpeed = 8;
   createSnake(7);  //Esta función crea el tamaño inicial de Snake
   time_p = 0;
@@ -380,7 +380,6 @@ void startF()
 }
 
 int playerNames(char asci, int n){
-
 
   switch(n){
     case 1:
@@ -482,8 +481,6 @@ void loop()
 
   if (!gameOver && gameStarted)
   {
-    lcd.setCursor(14, 0);
-    lcd.print("P1");
 
     if(sel==1){
       lcd.setCursor(0,0);
@@ -491,6 +488,8 @@ void loop()
       if(Serial.available() > 0) {incomingByte = Serial.read();  playerNames(incomingByte,1); delay(10);}
       lcd.setCursor(14, 1);
       lcd.print(EEPROM.read(0));
+      lcd.setCursor(10, 0);
+      lcd.print(EEPROM.readString(1));
 
     }
 
@@ -502,6 +501,8 @@ void loop()
     }
 
     if(sel == 3){
+      lcd.setCursor(14, 0);
+      lcd.print("P1");
 
       if(Serial.available() > 0) {
           incomingByte = Serial.read();
@@ -565,7 +566,7 @@ void loop()
          delay(10);
       }
 
-  bestScores(collected);
+  bestScores(collected, P1Name);
    key = get_key(incomingByte);  // convert into key press
    if (key != oldkey)   // if keypress is detected
    {
