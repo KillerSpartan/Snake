@@ -2,21 +2,97 @@
 #include <Arduino.h>
 #include <LiquidCrystal_I2C.h>
 #include <EEPROM.h>
+#include <WiFi.h>
+#include <PubSubClient.h>
 
-#define EEPROM_SIZE 50
+const char* ssid   = "INFINITUM41f3";
+const char* password = "3566343631";
+
+const char* brokerUser = "waxenbrute@gmail.com";
+const char* brokerPass   = "7a811dc7";
+const char* broker = "mqtt.dioty.co";
+
+const char* outTopic = "/waxenbrute@gmail.com/out";
+const char* inTopic = "/waxenbrute@gmail.com/control";
+const char* nameTopic = "/waxenbrute@gmail.com/name";
+
+
+WiFiClient espClient;
+PubSubClient client(espClient);
+
+char MQTTComm;
+
+#define EEPROM_SIZE 60
 #define BUTTON_PIN_BITMASK 0x200000000
 
 RTC_DATA_ATTR int bootCount = 0;
 
+long currentTime, lastTime;
+long count = 0;
+char messages[50] = "P2";
+char barcos[50] = "3";
+
+char P1Name[5];
+char P2Name[5];
+char P3Name[5];
+
+void reconnect(){
+  while(!client.connected()) {
+    Serial.print("\n Conectado a");
+    Serial.println(broker);
+    if(client.connect("WaxenBrute", brokerUser,brokerPass)){
+      Serial.print("\n Conectado a ");
+      Serial.println(broker);
+      client.subscribe(inTopic);
+      client.subscribe(nameTopic);
+
+
+    }else{
+      Serial.println("Intentando reconexión");
+      delay(5000);
+    }
+  }
+}
+
+void setupWifi(){
+  delay(10);
+  Serial.println();
+  Serial.println();
+  Serial.print("Connecting to ");
+  Serial.println(ssid);
+
+  WiFi.begin(ssid, password);
+
+  while (WiFi.status() != WL_CONNECTED) {
+      delay(500);
+      Serial.print(".");
+  }
+
+  Serial.println("");
+  Serial.println("WiFi connected");
+  Serial.println("IP address: ");
+  Serial.println(WiFi.localIP());
+}
+
+void callback(char* topic, byte* payload, unsigned int length){
+
+    Serial.println(topic);
+    for(int i=0; i<length; i++){
+      MQTTComm = payload[0];
+      Serial.print((char) payload[i]);
+      Serial.print(MQTTComm);
+    }
+
+Serial.println();
+
+}
 
 
 char incomingByte;
 int scoreX = 14;
 int aux=0;
 int sel;
-char P1Name[5];
-char P2Name[5];
-char P3Name[5];
+
 
 byte mySnake[8][8] =
 {
@@ -146,7 +222,7 @@ boolean levelz[5][4][20] = {
 
 unsigned long time_p, timeNow;
 int gameSpeed;
-boolean skip, gameOver, gameStarted, gamePause;
+boolean skip, gameOver, gameStarted, gamePause, gameComplete;
 int olddir;
 int selectedLevel,levels;
 
@@ -236,6 +312,21 @@ void gameOverFunction()
   delay(1000);
 }
 
+void finishedGame(){
+  delay(1000);
+  lcd.clear();
+  freeList();
+  lcd.setCursor(2,1);
+  lcd.print("Congratulations!");
+  lcd.setCursor(5,2);
+  lcd.print("It's complete ");
+
+  lcd.setCursor(2,3);
+  lcd.print("from UPY XOXO");
+  delay(1000);
+
+}
+
 void pauseGame(){
   delay(300);
   lcd.clear();
@@ -247,10 +338,15 @@ void pauseGame(){
   lcd.setCursor(0, 0);
   lcd.print(EEPROM.readString(1));
 
-  lcd.setCursor(12, 0);
+  lcd.setCursor(6, 0);
   lcd.print(EEPROM.readString(15));
-  lcd.setCursor(12, 1);
+  lcd.setCursor(6, 1);
   lcd.print(EEPROM.read(14));
+
+  lcd.setCursor(14, 0);
+  lcd.print(EEPROM.readString(30));
+  lcd.setCursor(14, 1);
+  lcd.print(EEPROM.read(29));
 
   delay(300);
 }
@@ -289,7 +385,7 @@ void newPoint()
 
 void moveHead()
 {
-  switch(head->dir) // 1 step in direction
+  switch(head->dir) // Paso a paso
   {
     case 0: head->row--; break;
     case 1: head->row++; break;
@@ -302,15 +398,16 @@ void moveHead()
   if (head->row >= 32) head->row = 0;
   if (head->row < 0) head->row = 31;
 
-  if (levelz[selectedLevel][head->row / 8][head->column / 5]) gameOver = true; // wall collision check
+  if (levelz[selectedLevel][head->row / 8][head->column / 5]) gameOver = true; // Choque con bloques
 
   part *p;
   p = tail;
-  while (p != head && !gameOver) // self collision
+  while (p != head && !gameOver) // Colisiona con ella
   {
     if (p->row == head->row && p->column == head->column) gameOver = true;
     p = p->next;
   }
+
   if (gameOver)
     gameOverFunction();
   else
@@ -320,7 +417,7 @@ void moveHead()
   if (head->row == pr && head->column == pc) // point pickup check
   {
     collected++;
-    if (gameSpeed < 50) gameSpeed+=3;
+    if (gameSpeed < 60) gameSpeed+=3;
     newPoint();
   }
   }
@@ -380,29 +477,40 @@ void createSnake(int n) // n = size of snake
 void bestScores(int gameScore, char name[5]){
   //Saitama
 if((gameScore > EEPROM.read(0))){
+
+  //Desplazamos tercer lugar
+    EEPROM.write(29, EEPROM.read(14));
+    EEPROM.writeString(30, EEPROM.readString(15));
+
+  //Desplazamos Segundo Lugar
+    EEPROM.write(14, EEPROM.read(0));
+    EEPROM.writeString(15, EEPROM.readString(1));
+
+//Se deja al ganador por excelencia
     EEPROM.write(0, gameScore);
     EEPROM.writeString(1, name);
     EEPROM.commit();
 
+
   }
 
+//Goku
+  if((gameScore < EEPROM.read(0))&&(gameScore > EEPROM.read(14))&&(gameScore>EEPROM.read(29))){
+      EEPROM.write(29, EEPROM.read(14));
+      EEPROM.writeString(30, EEPROM.readString(15));
 
+      EEPROM.write(14, gameScore);
+      EEPROM.writeString(15, name);
+      EEPROM.commit();
+    }
 
-//~ //Goku
-  //~ if((gameScore < EEPROM.read(0))&&(gameScore > EEPROM.read(2))&&(gameScore > EEPROM.read(4))){
-      //~ EEPROM.write(2, gameScore);
-      //~ EEPROM.commit();
-      //~ EEPROM.writeString(3, name);
-      //~ EEPROM.commit();
-    //~ }
-
-//~ //Naruto
-    //~ if((gameScore < EEPROM.read(0))&&(gameScore < EEPROM.read(2))&&(gameScore > EEPROM.read(4))){
-        //~ EEPROM.write(4, gameScore);
-        //~ EEPROM.commit();
-        //~ EEPROM.writeString(5, name);
-        //~ EEPROM.commit();
-      //~ }
+//Naruto
+    if((gameScore < EEPROM.read(0))&&(gameScore < EEPROM.read(14))&&(gameScore > EEPROM.read(29))){
+        EEPROM.write(29, gameScore);
+        EEPROM.commit();
+        EEPROM.writeString(30, name);
+        EEPROM.commit();
+      }
 
 }
 
@@ -412,10 +520,9 @@ void startF()
   gameOver = false;
   gameStarted = false;
   gamePause = false;
+  gameComplete = false;
+
   selectedLevel = 1;
-  EEPROM.writeString(15, "Pepe");
-  EEPROM.write(14, 30);
-  EEPROM.commit();
 
 
   lcd.clear();
@@ -427,8 +534,8 @@ void startF()
   lcd.setCursor(4,3);
   lcd.print("Level: 1");
 
-  collected = 60;
-  gameSpeed = 8;
+  collected = 9;
+  gameSpeed = 10;
   createSnake(7);  //Esta función crea el tamaño inicial de Snake
   time_p = 0;
   sel = 1;
@@ -447,6 +554,16 @@ int playerNames(char asci, int n){
   }
       return 0;
 }
+
+void playerWiFi(char asci[5]){
+
+      lcd.setCursor(0,1);
+      lcd.print(asci);
+      delay(2000);
+      sel=2;
+
+}
+
 
 int get_key(char input)
 {
@@ -488,12 +605,20 @@ void setup()
   Serial.begin(115200);
   EEPROM.begin(EEPROM_SIZE);
   startF();
+  setupWifi();
+  client.setServer(broker, 1883);
+  client.setCallback(callback);
 
 
 }
 
 void loop()
 {
+
+  if(!client.connected()){
+      reconnect();
+    }
+    client.loop();
 
 
   if (!gameOver && !gameStarted)
@@ -503,11 +628,13 @@ void loop()
         Serial.print("I received: "); Serial.println(incomingByte);
          delay(10);
       }
-   key = get_key(incomingByte);  // convert into key press
+    key = get_key(MQTTComm);
+   //key = get_key(incomingByte);  // convert into key press
    if (key != oldkey)   // if keypress is detected
    {
      delay(50);  // wait for debounce time
-     key = get_key(incomingByte);    // convert into key press
+     //key = get_key(incomingByte);    // convert into key press
+     key = get_key(MQTTComm);
      if (key != oldkey)
      {
        oldkey = key;
@@ -539,6 +666,7 @@ void loop()
     if(sel==1){
       lcd.setCursor(0,0);
       lcd.print("Player");
+    //  playerWiFi(P2Name);
       if(Serial.available() > 0) {incomingByte = Serial.read();  playerNames(incomingByte,1); delay(10);}
       lcd.setCursor(18, 1);
       lcd.print(EEPROM.read(0));
@@ -559,14 +687,16 @@ void loop()
     if(sel == 3){
 
 
-
       if(Serial.available() > 0) {
 
           incomingByte = Serial.read();
           Serial.print("I received: "); Serial.println(incomingByte);
           delay(10);
-          if(incomingByte == 'l') gamePause = true;
         }
+
+        if(MQTTComm == 'p') gamePause = true;
+        if(collected == 99) gameComplete = true;
+
 
         lcd.setCursor(14,0);
         lcd.print("Player");
@@ -578,11 +708,13 @@ void loop()
         lcd.print(collected);
 
      skip = false; //skip the second moveAll() function call if the first was made
-     key = get_key(incomingByte);  // convert into key press
+     //key = get_key(incomingByte);  // convert into key press
+     key = get_key(MQTTComm);
      if (key != oldkey)   // if keypress is detected
      {
        delay(50);  // wait for debounce time
-       key = get_key(incomingByte);    // convert into key press
+       //key = get_key(incomingByte);    // convert into key press
+       key = get_key(MQTTComm);
        if (key != oldkey)
        {
          oldkey = key;
@@ -626,9 +758,11 @@ if(!gameOver && gameStarted && gamePause){
   if(Serial.available() > 0) {
       incomingByte = Serial.read();
       Serial.print("I received: "); Serial.println(incomingByte);
-      if(incomingByte == 'l') {gamePause = false; sel=3;}
        delay(10);
     }
+
+    if(MQTTComm == 'l') {gamePause = false; sel=3;}
+
   pauseGame();}
 
   if(gameOver)
@@ -640,11 +774,14 @@ if(!gameOver && gameStarted && gamePause){
       }
 
   bestScores(collected, P1Name);
-   key = get_key(incomingByte);  // convert into key press
+   //key = get_key(incomingByte);  // convert into key press
+   key = get_key(MQTTComm);  // convert into key press
+
    if (key != oldkey)   // if keypress is detected
    {
      delay(50);  // wait for debounce time
-     key = get_key(incomingByte);    // convert into key press
+     //key = get_key(incomingByte);    // convert into key press
+      key = get_key(MQTTComm);
      if (key != oldkey)
      {
        oldkey = key;
@@ -656,6 +793,7 @@ if(!gameOver && gameStarted && gamePause){
    }
 
  }
+
 
 
 
